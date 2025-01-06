@@ -70,9 +70,14 @@ func main() {
 			os.Exit(0)
 		}
 		if a1 == "run" {
+			go repairRoute()
 			procRun()
 			os.Exit(0)
 		}
+                if a1 == "route" {
+                        repairRoute()
+                        os.Exit(0)
+                }
 		fmt.Println("parameter invalid")
 		os.Exit(-1)
 	}
