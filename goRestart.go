@@ -13,7 +13,6 @@ import (
 
 	"github.com/natefinch/lumberjack"
 	"github.com/nxadm/tail"
-	"github.com/patrickmn/go-cache"
 	"github.com/spf13/viper"
 )
 
@@ -37,7 +36,7 @@ var genVar Generalvars
 
 func main() {
 	// Set location of config
-	viper.SetConfigName("goOpenhab") // name of config file (without extension)
+	viper.SetConfigName("goRestart") // name of config file (without extension)
 	viper.AddConfigPath("/etc/")     // path to look for the config file in
 
 	// Read config
@@ -59,46 +58,19 @@ func main() {
 			_ = cmd.Start()
 			os.Exit(0)
 		}
-		if a1 == "mtraceon" {
-			b, err := os.ReadFile(pidfile)
-			if err != nil {
-				log.Fatal(err)
-			}
-			s := string(b)
-			fmt.Println("MsgTraceOn")
-			cmd := exec.Command("kill", "-10", s)
-			_ = cmd.Start()
-			os.Exit(0)
-		}
-		if a1 == "mtraceoff" {
-			b, err := os.ReadFile(pidfile)
-			if err != nil {
-				log.Fatal(err)
-			}
-			s := string(b)
-			fmt.Println("MsgTraceOff")
-			cmd := exec.Command("kill", "-12", s)
-			_ = cmd.Start()
-			os.Exit(0)
-		}
 		if a1 == "stop" {
 			b, err := os.ReadFile(pidfile)
 			if err != nil {
 				log.Fatal(err)
 			}
 			s := string(b)
-			fmt.Println("Stop goOpenhab")
+			fmt.Println("Stop goRestart")
 			cmd := exec.Command("kill", "-9", s)
 			_ = cmd.Start()
 			os.Exit(0)
 		}
 		if a1 == "run" {
 			procRun()
-			os.Exit(0)
-		}
-		if a1 == "sim" {
-			read_config()
-			simMsg()
 			os.Exit(0)
 		}
 		fmt.Println("parameter invalid")
@@ -117,32 +89,10 @@ func procRun() {
 	}
 	defer os.Remove(pidfile)
 
-	genVar.Pers = cache.New(cache.NoExpiration, cache.NoExpiration)
-	traceLog("Persistence was initialized")
-
 	genVar.Telegram = make(chan string)
 
 	go sendTelegram(genVar.Telegram)
 	traceLog("Telegram interface was initialized")
-
-	genVar.Mqttmsg = make(chan Mqttparms, 5)
-
-	go publishMqtt(genVar.Mqttmsg)
-	traceLog("MQTT interface was initialized")
-
-	genVar.Getin = make(chan Requestin)
-	genVar.Getout = make(chan string)
-
-	go restApiGet(genVar.Getin, genVar.Getout)
-	traceLog("restapi get interface was initialized")
-
-	genVar.Postin = make(chan Requestin)
-
-	go restApiPost(genVar.Postin)
-	traceLog("restapi post interface was initialized")
-
-	go getPvForecast()
-	traceLog("pv forecast interface was initialized")
 
 	go checkNetwork()
 	traceLog("network checking was initialized")
@@ -164,9 +114,6 @@ func procRun() {
 	// Inform about trace
 	log.Println("Trace set to: ", do_trace)
 
-	// Do customized initialization
-	rulesInit()
-
 	// Catch signals
 	signals := make(chan os.Signal, 1)
 	signal.Notify(signals, syscall.SIGHUP, syscall.SIGUSR1, syscall.SIGUSR2, syscall.SIGTERM)
@@ -182,15 +129,15 @@ func procRun() {
 		go tailLog(rlog)
 	}
 
-	traceLog("goOpenhab is up and running")
+	traceLog("goRestart is up and running")
 
 	for {
 		time.Sleep(60 * time.Second)
 		if chronoCounter == chronoOld {
-			var mInfo Msginfo
-			mInfo.Msgevent = "watchdog.event"
-			mInfo.Msgobject = "Watchdog"
-			go processRulesInfo(mInfo)
+//			var mInfo Msginfo
+//			mInfo.Msgevent = "watchdog.event"
+//			mInfo.Msgobject = "Watchdog"
+//			go processRulesInfo(mInfo)
 		}
 		chronoOld = chronoCounter
 	}
@@ -227,7 +174,7 @@ func procLine(msg string) {
 					mInfo.Msgnewstate = mes[2]
 				}
 			}
-			processRulesInfo(mInfo)
+//			processRulesInfo(mInfo)
 			counter++
 		}
 		if msgType == "WARN" {
@@ -282,7 +229,7 @@ func catch_signals(c <-chan os.Signal) {
 			dfile.Close()
 		}
 		if s == syscall.SIGTERM {
-			fmt.Println("goOpenhab stopped")
+			fmt.Println("goRestart stopped")
 			os.Exit(0)
 		}
 	}
@@ -306,33 +253,16 @@ func read_config() {
 	do_trace = viper.GetBool("do_trace")
 	genVar.Tbtoken = viper.GetString("tbtoken")
 	genVar.Chatid = int64(viper.GetInt("chatid"))
-	genVar.Mqttbroker = viper.GetString("mqtt_broker")
-	topics = viper.GetStringSlice("topics")
-	genVar.Resturl = viper.GetString("rest_url")
-	genVar.Resttoken = viper.GetString("rest_token")
-	dumpfile = viper.GetString("dump_file")
 	logseverity = viper.GetInt("log_severity")
 
-	genVar.PVurl = viper.GetString("pv_url")
-	genVar.PVApiToken = viper.GetString("pv_token")
-	genVar.PVlongitude = viper.GetString("pv_longitude")
-	genVar.PVlatitude = viper.GetString("pv_latitude")
-	genVar.PVdeclination = viper.GetString("pv_declination")
-	genVar.PVazimuth = viper.GetString("pv_azimuth")
-	genVar.PVkw = viper.GetString("pv_kw")
 	genVar.machineNet = viper.GetString("machine_net")
 	genVar.localNet = viper.GetString("local_net")
 	genVar.interNet = viper.GetString("inter_net")
-	genVar.MMuserid = viper.GetString("meteomatics_userid")
-	genVar.MMpassw = viper.GetString("meteomatics_passw")
-	genVar.MMcountry = viper.GetString("meteomatics_country")
-	genVar.MMpostcode = viper.GetString("meteomatics_postcode")
 
 	if do_trace {
 		log.Println("do_trace: ", do_trace)
 		log.Println("own_log; ", ownlog)
 		log.Println("pid_file: ", pidfile)
-		log.Println("Rest url: ", genVar.Resturl)
 		log.Println("Dumpfile: ", dumpfile)
 		log.Println("Logseverity: ", logseverity)
 
@@ -363,8 +293,6 @@ func myUsage() {
 	fmt.Println("Arguments:")
 	fmt.Println("run           Run progam as daemon")
 	fmt.Println("reload        Make running daemon reload it's configuration")
-	fmt.Println("mtraceon      Make running daemon switch it's message tracing on (useful for coding new rules)")
-	fmt.Println("mtraceoff     Make running daemon switch it's message tracing off")
 	fmt.Println("stop          Stop daemon")
 	fmt.Println("sim           Test rules by reading the dump file")
 }
